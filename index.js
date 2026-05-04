@@ -48,7 +48,6 @@ async function carregarMembros(guild) {
   } catch (err) {
     const retry = err?.data?.retry_after;
     if (retry) {
-      console.log(`Rate limit, esperando ${retry}s...`);
       await new Promise(r => setTimeout(r, retry * 1000));
       await guild.members.fetch();
     }
@@ -58,6 +57,11 @@ async function carregarMembros(guild) {
 async function atualizarHierarquia() {
   const guild = await client.guilds.fetch(process.env.GUILD_ID);
   const channel = await guild.channels.fetch(process.env.CHANNEL_ID);
+
+  if (!channel || !channel.isTextBased()) {
+    console.log("Canal inválido.");
+    return;
+  }
 
   await carregarMembros(guild);
 
@@ -73,10 +77,7 @@ async function atualizarHierarquia() {
       return true;
     });
 
-    const membros = membrosFiltrados
-      .map(m => `• ${m}`)
-      .join("\n");
-
+    const membros = membrosFiltrados.map(m => `• ${m}`).join("\n");
     const quantidade = membrosFiltrados.size;
 
     const embed = new EmbedBuilder()
@@ -86,7 +87,7 @@ async function atualizarHierarquia() {
         `${role}\n\n${membros || "• Nenhum membro neste cargo."}`
       )
       .setFooter({
-        text: `Atualizado Automaticamente | Última alteração: ${agoraFormatado()}`
+        text: `Atualizado Automaticamente | ${agoraFormatado()}`
       });
 
     const key = `MSG_${roleInfo.id}`;
@@ -95,12 +96,13 @@ async function atualizarHierarquia() {
       try {
         const msg = await channel.messages.fetch(process.env[key]);
         await msg.edit({ embeds: [embed] });
-        continue;
-      } catch {}
+      } catch {
+        await channel.send({ embeds: [embed] });
+      }
+    } else {
+      // só cria, sem spam
+      await channel.send({ embeds: [embed] });
     }
-
-    const nova = await channel.send({ embeds: [embed] });
-    console.log(`Coloque no Railway: ${key}=${nova.id}`);
   }
 }
 
@@ -125,6 +127,10 @@ client.on(Events.GuildMemberUpdate, (oldMember, newMember) => {
   if (antes !== depois) {
     agendarAtualizacao();
   }
+});
+
+client.on("error", err => {
+  console.log("Erro:", err.message);
 });
 
 client.login(process.env.TOKEN);
