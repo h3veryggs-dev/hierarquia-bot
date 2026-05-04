@@ -14,21 +14,22 @@ const client = new Client({
   ],
 });
 
-const staffRoles = [
-  { name: "🔒 > • 👑 OWNER/FUNDADOR", id: "1496029474846806176" },
-  { name: "> • 👾 CEO", id: "1496029476231053363" },
-  { name: "> • 👀 CO-CEO", id: "1496029477027971112" },
-  { name: "> • RESPONSAVEL GERAL", id: "1496123385380470894" },
-  { name: "> • RESPONSAVEL STAFF", id: "1496125131519430666" },
-  { name: "> • RESPONSAVEL TICKET", id: "1496123378220929094" },
-  { name: "> • ADMIN GERAL", id: "1496123388991770734" },
-  { name: "> • ADMIN", id: "1496122044671070338" },
-  { name: "> • EQUIPE TICKET", id: "1496029487333249105" },
-  { name: "> > • EQUIPE DENÚNCIA", id: "1496120303938437140" },
-  { name: "> • MODERADOR", id: "1496029484162220173" },
-  { name: "> • EQUIPE SUPORTE", id: "1496029485626294394" },
-  { name: "> • EQUIPE ALOWLIST", id: "1496122051092680784" },
-];
+  const staffRoles = [
+    { name: "🔒 > • 👑 OWNER/FUNDADOR", id: "1496029474846806176" },
+    { name: "> • 👾 CEO", id: "1496029476231053363" },
+    { name: "> • 👀 CO-CEO", id: "1496029477027971112" },
+    { name: "> • RESPONSAVEL GERAL", id: "1496123385380470894" },
+    { name: "> • RESPONSAVEL STAFF", id: "1496125131519430666" },
+    { name: "> • RESPONSÁVEL TICKET", id: "1496123378220929094" },
+    { name: "> • EQUIPE COORDENADOR", id: "1500951995870216353" },
+    { name: "> • EQUIPE SUPERVISOR", id: "1500951982213566465" },
+    { name: "> • ADMIN GERAL", id: "1496123388991770734" },
+    { name: "> • ADMIN", id: "1496122044671070338" },
+    { name: "> • DIRETOR", id: "1500952889936580608" },
+    { name: "> • EQUIPE TICKET", id: "1496029487333249105" },
+    { name: "> • MODERADOR", id: "1496029484162220173" },
+    { name: "> • EQUIPE SUPORTE", id: "1496029485626294394" },
+  ];
 
 function agoraFormatado() {
   return new Date().toLocaleString("pt-BR", {
@@ -62,28 +63,34 @@ async function gerarEmbeds(guild) {
   await carregarMembros(guild);
 
   const embeds = [];
+  const membrosJaListados = new Set();
 
   for (const roleInfo of staffRoles) {
     const role = guild.roles.cache.get(roleInfo.id);
     if (!role) continue;
 
-    const membros = role.members
+    const membrosDoCargo = role.members.filter(member => {
+      if (membrosJaListados.has(member.id)) return false;
+
+      membrosJaListados.add(member.id);
+      return true;
+    });
+
+    const membros = membrosDoCargo
       .map(member => `• ${member}`)
       .join("\n");
 
-    const quantidade = role.members.size;
+    const quantidade = membrosDoCargo.size;
 
-    const embed = new EmbedBuilder()
-      .setColor("#2b2d31")
-      .setTitle(`${roleInfo.name} - [${quantidade}] membros`)
-      .setDescription(
-        `${role}\n\n${membros || "Nenhum membro neste cargo."}`
-      )
-      .setFooter({
-        text: `Atualizado Automaticamente | Última alteração: ${agoraFormatado()}`
-      });
-
-    embeds.push(embed);
+    embeds.push(
+      new EmbedBuilder()
+        .setColor("#2b2d31")
+        .setTitle(`${roleInfo.name} - [${quantidade}] membros`)
+        .setDescription(`${role}\n\n${membros || "Nenhum membro neste cargo."}`)
+        .setFooter({
+          text: `Atualizado Automaticamente | Última alteração: ${agoraFormatado()}`
+        })
+    );
   }
 
   return embeds;
