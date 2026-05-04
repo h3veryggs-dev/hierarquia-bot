@@ -41,7 +41,26 @@ function agoraFormatado() {
   });
 }
 
-function gerarEmbeds(guild) {
+// 🔥 carrega membros com retry (corrige erro do Railway)
+async function carregarMembros(guild) {
+  try {
+    await guild.members.fetch();
+  } catch (err) {
+    const retry = err?.data?.retry_after;
+
+    if (retry) {
+      console.log(`Rate limit. Tentando de novo em ${retry}s...`);
+      await new Promise(r => setTimeout(r, retry * 1000));
+      await guild.members.fetch();
+    } else {
+      console.log("Erro ao carregar membros:", err.message);
+    }
+  }
+}
+
+async function gerarEmbeds(guild) {
+  await carregarMembros(guild);
+
   const embeds = [];
 
   for (const roleInfo of staffRoles) {
@@ -57,7 +76,9 @@ function gerarEmbeds(guild) {
     const embed = new EmbedBuilder()
       .setColor("#2b2d31")
       .setTitle(`${roleInfo.name} - [${quantidade}] membros`)
-      .setDescription(`${role}\n\n${membros || "Nenhum membro neste cargo."}`)
+      .setDescription(
+        `${role}\n\n${membros || "Nenhum membro neste cargo."}`
+      )
       .setFooter({
         text: `Atualizado Automaticamente | Última alteração: ${agoraFormatado()}`
       });
@@ -70,11 +91,10 @@ function gerarEmbeds(guild) {
 
 async function atualizarHierarquia() {
   try {
-    const guild = client.guilds.cache.get(process.env.GUILD_ID);
-    if (!guild) return console.log("Servidor não encontrado.");
-
+    const guild = await client.guilds.fetch(process.env.GUILD_ID);
     const channel = await guild.channels.fetch(process.env.CHANNEL_ID);
-    const embeds = gerarEmbeds(guild);
+
+    const embeds = await gerarEmbeds(guild);
 
     const embedsLimitados = embeds.slice(0, 10);
 
@@ -82,41 +102,43 @@ async function atualizarHierarquia() {
       const msg = await channel.messages.fetch(process.env.MESSAGE_ID);
       await msg.edit({ embeds: embedsLimitados });
     } else {
-      const novaMensagem = await channel.send({ embeds: embedsLimitados });
-      console.log("Coloque este MESSAGE_ID no .env:");
-      console.log(novaMensagem.id);
+      const nova = await channel.send({ embeds: embedsLimitados });
+      console.log("Coloque este MESSAGE_ID no Railway:");
+      console.log(nova.id);
     }
   } catch (err) {
-    console.log("Erro ao atualizar hierarquia:", err.message);
+    console.log("Erro ao atualizar:", err.message);
   }
 }
 
-let timeoutAtualizacao = null;
+// ⏳ evita spam de atualização
+let timeout = null;
 
 function agendarAtualizacao() {
-  clearTimeout(timeoutAtualizacao);
-
-  timeoutAtualizacao = setTimeout(() => {
+  clearTimeout(timeout);
+  timeout = setTimeout(() => {
     atualizarHierarquia();
   }, 5000);
 }
 
-client.once(Events.ClientReady, async () => {
+// ✅ evento correto
+client.once(Events.ClientReady, () => {
   console.log(`Bot online como ${client.user.tag}`);
   agendarAtualizacao();
 });
 
+// 🔄 detecta mudança de cargo
 client.on(Events.GuildMemberUpdate, (oldMember, newMember) => {
-  const cargosAntigos = oldMember.roles.cache.map(r => r.id).sort().join(",");
-  const cargosNovos = newMember.roles.cache.map(r => r.id).sort().join(",");
+  const antes = oldMember.roles.cache.map(r => r.id).join(",");
+  const depois = newMember.roles.cache.map(r => r.id).join(",");
 
-  if (cargosAntigos !== cargosNovos) {
+  if (antes !== depois) {
     agendarAtualizacao();
   }
 });
 
 client.on("error", err => {
-  console.log("Erro do client:", err.message);
+  console.log("Erro do bot:", err.message);
 });
 
 client.login(process.env.TOKEN);
