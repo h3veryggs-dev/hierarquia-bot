@@ -1,5 +1,7 @@
 require("dotenv").config();
 
+const fs = require("fs");
+
 const {
   Client,
   GatewayIntentBits,
@@ -31,6 +33,17 @@ const staffRoles = [
   { name: "> • EQUIPE SUPORTE", id: "1496029485626294394" },
 ];
 
+const DB_FILE = "./messages.json";
+
+function carregarDB() {
+  if (!fs.existsSync(DB_FILE)) return {};
+  return JSON.parse(fs.readFileSync(DB_FILE, "utf8"));
+}
+
+function salvarDB(db) {
+  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+}
+
 function agoraFormatado() {
   return new Date().toLocaleString("pt-BR", {
     timeZone: "America/Sao_Paulo",
@@ -47,62 +60,74 @@ async function carregarMembros(guild) {
     await guild.members.fetch();
   } catch (err) {
     const retry = err?.data?.retry_after;
+
     if (retry) {
+      console.log(`Rate limit, esperando ${retry}s...`);
       await new Promise(r => setTimeout(r, retry * 1000));
       await guild.members.fetch();
+    } else {
+      console.log("Erro ao carregar membros:", err.message);
     }
   }
 }
 
 async function atualizarHierarquia() {
-  const guild = await client.guilds.fetch(process.env.GUILD_ID);
-  const channel = await guild.channels.fetch(process.env.CHANNEL_ID);
+  try {
+    const db = carregarDB();
 
-  if (!channel || !channel.isTextBased()) {
-    console.log("Canal inválido.");
-    return;
-  }
+    const guild = await client.guilds.fetch(process.env.GUILD_ID);
+    const channel = await guild.channels.fetch(process.env.CHANNEL_ID);
 
-  await carregarMembros(guild);
+    if (!channel || !channel.isTextBased()) {
+      console.log("CHANNEL_ID inválido. Use um canal de texto.");
+      return;
+    }
 
-  const membrosJaListados = new Set();
+    await carregarMembros(guild);
 
-  for (const roleInfo of staffRoles) {
-    const role = guild.roles.cache.get(roleInfo.id);
-    if (!role) continue;
+    const membrosJaListados = new Set();
 
-    const membrosFiltrados = role.members.filter(member => {
-      if (membrosJaListados.has(member.id)) return false;
-      membrosJaListados.add(member.id);
-      return true;
-    });
+    for (const roleInfo of staffRoles) {
+      const role = guild.roles.cache.get(roleInfo.id);
+      if (!role) continue;
 
-    const membros = membrosFiltrados.map(m => `• ${m}`).join("\n");
-    const quantidade = membrosFiltrados.size;
-
-    const embed = new EmbedBuilder()
-      .setColor("#2b2d31")
-      .setTitle(`${roleInfo.name} - [${quantidade}] membros${"‎".repeat(40)}`)
-      .setDescription(
-        `${role}\n\n${membros || "• Nenhum membro neste cargo."}`
-      )
-      .setFooter({
-        text: `Atualizado Automaticamente | ${agoraFormatado()}`
+      const membrosFiltrados = role.members.filter(member => {
+        if (membrosJaListados.has(member.id)) return false;
+        membrosJaListados.add(member.id);
+        return true;
       });
 
-    const key = `MSG_${roleInfo.id}`;
+      const membros = membrosFiltrados.map(m => `• ${m}`).join("\n");
+      const quantidade = membrosFiltrados.size;
 
-    if (process.env[key]) {
-      try {
-        const msg = await channel.messages.fetch(process.env[key]);
-        await msg.edit({ embeds: [embed] });
-      } catch {
-        await channel.send({ embeds: [embed] });
+      const embed = new EmbedBuilder()
+        .setColor("#2b2d31")
+        .setTitle(`${roleInfo.name} - [${quantidade}] membros${"‎".repeat(40)}`)
+        .setDescription(`${role}\n\n${membros || "• Nenhum membro neste cargo."}`)
+        .setFooter({
+          text: `Atualizado Automaticamente | ${agoraFormatado()}`
+        });
+
+      const key = roleInfo.id;
+      const savedMessageId = db[key];
+
+      if (savedMessageId) {
+        try {
+          const msg = await channel.messages.fetch(savedMessageId);
+          await msg.edit({ embeds: [embed] });
+          continue;
+        } catch {
+          console.log(`Mensagem antiga de ${roleInfo.name} não encontrada. Criando outra...`);
+        }
       }
-    } else {
-      // só cria, sem spam
-      await channel.send({ embeds: [embed] });
+
+      const nova = await channel.send({ embeds: [embed] });
+      db[key] = nova.id;
+      salvarDB(db);
+      console.log(`Mensagem salva para ${roleInfo.name}: ${nova.id}`);
     }
+  } catch (err) {
+    console.log("Erro ao atualizar hierarquia:", err.message);
   }
 }
 
@@ -121,8 +146,8 @@ client.once(Events.ClientReady, () => {
 });
 
 client.on(Events.GuildMemberUpdate, (oldMember, newMember) => {
-  const antes = oldMember.roles.cache.map(r => r.id).join(",");
-  const depois = newMember.roles.cache.map(r => r.id).join(",");
+  const antes = oldMember.roles.cache.map(r => r.id).sort().join(",");
+  const depois = newMember.roles.cache.map(r => r.id).sort().join(",");
 
   if (antes !== depois) {
     agendarAtualizacao();
